@@ -1,0 +1,126 @@
+/*************************************************************************************
+This macro conducts a two arm inverse weighted generalized estimated equation analysis
+It takes as input:
+A)dataset- contains data on the cohort groups (COVID and REF) with unique id (id),
+	covariates, outcome date, outcome history, 
+	end of followup date (endoffollow), and the start of followup date (t0)
+B)history- An indicator of prior history of the disease being examined
+	Used to exclude those with the disease. May be set to 1 or a date
+C)outcome- This contains the date of the outcome
+D)hdps- dataset with high dimensional covariates in long form 
+E)cat- dataset with categorical predefined covariates in long form
+F)cont- dataset with continuous predefined covariates in long form
+G)psrez- storage of weights for covariate balance evaluation
+H)model_rez- storage of model results
+I)model_cov- storage of model covariance
+*************************************************************************************/
+%macro disease(history, outcome, dataset, hdps, cat, con, psrez, model_rez, model_cov);
+/*High dimensional covariates*/
+data eee;
+set &hdps;
+length cov $32767.;
+retain cov;
+cov=catx(' ',cov,_name_); 
+call symput('hdvs',cov);
+run;
+
+/*Categorical predefined covariates*/
+data eee;
+set &cat;
+length cov $32767.;
+retain cov;
+cov=catx(' ',cov,_name_); 
+call symput('cat',cov);
+run;
+
+
+/*Continuous predefined covariates*/
+data eee;
+set &cont;
+length cov $32767.;
+retain cov;
+cov=catx(' ',cov,_name_); 
+call symput('cont',cov);
+run;
+
+data model;
+set &dataset;
+if &history<=0;
+run;
+
+proc logistic data=model noprint;
+  class &cat;
+  model group(event="COVID")= &hdvs &cat &cont;
+  output out=ps (keep=id group T0 ps_score endoffollow &outcome ) pred=ps_score ;
+run;
+
+/*To get group membership for stabilizing weights*/
+ods output onewayfreqs=freq;
+proc freq data=model;
+  tables group;
+run;
+
+data freq;
+  set freq;
+  if group="COVID" then call symput('covp',percent/100);
+  if group="REF" then call symput('refp',percent/100);
+run;
+
+data &psrez ;
+  set ps;
+  if group="REF" then wt_&outcome=&refp/(1-ps_score);
+  if group="COVID" then  wt_&outcome=&covp/ps_score;
+  drop ps_score;
+run;
+
+/*Creates one observation per period and assigns event indicator, censors*/
+data outcome;
+  set &psrez (where=(wt_&outcome^=.));
+  do i=1 to 5 by 1;
+  if i=1 then do; period=1; start=t0+30; stop=t0+90; end;
+  if i=2 then do; period=2; start=t0+90; stop=t0+180; end;
+  if i=3 then do; period=3; start=t0+180; stop=t0+360; end;
+  if i=4 then do; period=4; start=t0+360; stop=t0+540; end;
+  if i=5 then do; period=5; start=t0+540; stop=t0+720; end;
+  Event=0;
+  if endoffollow<start then delete;
+  if start<&outcome<=stop then event=1;
+  output;
+  end;
+run;
+
+
+/*Generalized estiamting equation*/
+ods output GEEEmpPest=results
+ods output GEERcov=cov;
+proc genmod data=outcome descending;
+  class &id group (ref="REF") period;
+  model event=group*period period / link=log dist=binomial;
+  weight wt_&outcome;
+  repeated subject=&id / ecovb;
+run;
+
+data &model_rez, 
+  set &model_rez  results (in=a);
+  if a then outcome="&outcome";
+run;
+
+data &model_cov;
+  set &model_cov  cov (in=a);
+  if a then outcome="&outcome";
+run;
+%mend;
+
+*Initiates storage for model results.;
+data  model_rez;
+  length outcome $50;
+  set _null_;
+run;
+
+*Initiates storage for for model covariance.;
+data  model_cov;
+  length outcome $50;
+  set _null_;
+run;
+
+%disease (history, outcome, dataset, hdps, cat, con, psrez, model_rez, model_cov);
