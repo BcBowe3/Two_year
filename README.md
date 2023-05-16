@@ -2,10 +2,10 @@ The contents of this folder correspond to the research study "Post-acute Sequela
 
 The contents include:
 
-HD variable selction- code for doing the high dimensional variable selection.
+HD variable selction- Code for doing the high dimensional variable selection.
 
-Variable Balance- code that does the weighting to balance covariates.
+Variable Balance- Code that does the weighting for balancing covariates.
 
-Period_analyses- analytic code for conducting the analyses to get results.
+Period_analyses- Code for conducting the analyses to obtain results.
 
-Outcome defintion- this contains code for identifying outcomes.
+Outcome defintion- Code for identifying outcomes.
